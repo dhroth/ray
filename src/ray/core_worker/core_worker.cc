@@ -789,6 +789,37 @@ void CoreWorker::Disconnect(
   }
 }
 
+void CoreWorker::KillChildProcsRecursive(pid_t pid) {
+  auto maybe_child_procs = GetAllProcsWithPpid(pid);
+
+  // Enumerating child procs is not supported on this platform.
+  if (!maybe_child_procs) {
+    RAY_LOG(DEBUG) << "Killing leaked procs not supported on this platform.";
+    return;
+  }
+
+  const auto &child_procs = *maybe_child_procs;
+  const auto child_procs_str = absl::StrJoin(child_procs, ",");
+  RAY_LOG(INFO) << "Try killing all child processes of this worker as it exits. "
+                << "Child process pids: " << child_procs_str;
+
+  for (const auto &child_pid : child_procs) {
+    KillChildProcsRecursive(child_pid);
+
+    auto maybe_error_code = KillProc(child_pid);
+    RAY_CHECK(maybe_error_code)
+        << "Expected this path to only be called when KillProc is supported.";
+    auto error_code = *maybe_error_code;
+
+    RAY_LOG(INFO) << "Kill result for child pid " << child_pid << ": "
+                  << error_code.message() << ", bool " << (bool)error_code;
+    if (error_code) {
+      RAY_LOG(WARNING) << "Unable to kill potentially leaked process " << child_pid
+                       << ": " << error_code.message();
+    }
+  }
+}
+
 void CoreWorker::KillChildProcs() {
   // There are cases where worker processes can "leak" child processes.
   // Basically this means that the worker process (either itself, or via
@@ -811,32 +842,9 @@ void CoreWorker::KillChildProcs() {
   }
 
   RAY_LOG(DEBUG) << "kill_child_processes_on_worker_exit true, KillChildProcs";
-  auto maybe_child_procs = GetAllProcsWithPpid(GetPID());
 
-  // Enumerating child procs is not supported on this platform.
-  if (!maybe_child_procs) {
-    RAY_LOG(DEBUG) << "Killing leaked procs not supported on this platform.";
-    return;
-  }
+  KillChildProcsRecursive(GetPID());
 
-  const auto &child_procs = *maybe_child_procs;
-  const auto child_procs_str = absl::StrJoin(child_procs, ",");
-  RAY_LOG(INFO) << "Try killing all child processes of this worker as it exits. "
-                << "Child process pids: " << child_procs_str;
-
-  for (const auto &child_pid : child_procs) {
-    auto maybe_error_code = KillProc(child_pid);
-    RAY_CHECK(maybe_error_code)
-        << "Expected this path to only be called when KillProc is supported.";
-    auto error_code = *maybe_error_code;
-
-    RAY_LOG(INFO) << "Kill result for child pid " << child_pid << ": "
-                  << error_code.message() << ", bool " << (bool)error_code;
-    if (error_code) {
-      RAY_LOG(WARNING) << "Unable to kill potentially leaked process " << child_pid
-                       << ": " << error_code.message();
-    }
-  }
 }
 
 void CoreWorker::Exit(

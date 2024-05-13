@@ -1436,6 +1436,7 @@ class CoreWorker : public rpc::CoreWorkerServiceHandler {
   /// unavailable until the process is killed.
   /// This is called during shutdown of the process.
   void KillChildProcs();
+  void KillChildProcsRecursive(pid_t pid);
 
   /// Register this worker or driver to GCS.
   void RegisterToGcs(int64_t worker_launch_time_ms, int64_t worker_launched_time_ms);
